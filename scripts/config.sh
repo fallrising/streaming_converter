@@ -1,8 +1,13 @@
 #!/bin/bash
 # config.sh - Configuration settings for video processing
 
-# Base directories
-export BASE_DIR="$HOME/video_conversion"
+# Determine the directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Set the project root to one level up from SCRIPT_DIR
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+
+# Base directories (relative to project root)
+export BASE_DIR="$PROJECT_ROOT"
 export UPLOAD_DIR="$BASE_DIR/upload"
 export PROCESSED_DIR="$BASE_DIR/processed"
 export WWW_DIR="$BASE_DIR/www"
@@ -10,30 +15,28 @@ export LOG_DIR="$BASE_DIR/logs"
 
 # Video Quality Settings
 # Format: "name:resolution:bitrate"
-# Will automatically scale based on input video resolution
+# Automatically scales based on input video resolution
 export QUALITIES=(
-    # Original quality (will match input if higher than 1080p)
-    "source:original:4000k"
-    # Common qualities
-    "720p:1280x720:2500k"
-    "480p:854x480:1000k"
-    "360p:640x360:800k"
-    "240p:426x240:400k"
+    "source:original:4000k"   # Original quality
+    "720p:1280x720:2500k"     # 720p
+    "480p:854x480:1000k"      # 480p
+    "360p:640x360:800k"       # 360p
+    "240p:426x240:400k"       # 240p
 )
 
 # Video Encoding Settings
-export HLS_SEGMENT_TIME=10        # Length of each segment in seconds
+export HLS_SEGMENT_TIME=10       # Length of each segment in seconds
 export HLS_LIST_SIZE=0           # 0 means keep all segments
 export VIDEO_PRESET="fast"       # Encoding preset
 export AUDIO_BITRATE="128k"      # Audio bitrate
 export AUDIO_CHANNELS=2          # Number of audio channels
 
 # Validation settings - Minimal requirements
-export MIN_WIDTH=160             # Very permissive minimum width
-export MIN_HEIGHT=90             # Very permissive minimum height
+export MIN_WIDTH=160             # Minimum width
+export MIN_HEIGHT=90             # Minimum height
 export MIN_DURATION=1            # Minimum video duration in seconds
 
-# Create required directories
+# Create required directories if they don't exist
 mkdir -p "$UPLOAD_DIR" "$PROCESSED_DIR" "$WWW_DIR" "$LOG_DIR"
 
 # Logging function
@@ -45,3 +48,4 @@ log() {
 }
 
 export -f log
+
