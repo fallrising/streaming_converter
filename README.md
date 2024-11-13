@@ -316,3 +316,19 @@ Update the video URLs in index.html to use R2 URLs:
 // Example R2 URL format
 const videoPath = `https://${R2_DOMAIN}/${R2_BASE_PATH}/${videoName}/master.m3u8`;
 ```
+
+## Docker
+
+### Build
+```bash
+docker build -t video_processor .
+```
+
+### Run
+```
+docker run -d \
+    --name video_processor \
+    -v /path/to/local/upload:/app/upload \
+    -v /path/to/local/processed:/app/processed \
+    video_processor
+```
