@@ -8,12 +8,12 @@ get_scaled_qualities() {
     local input_height="$2"
     local scaled_qualities=()
     
-    # Add source quality if input is high quality
-    if [ "$input_width" -ge 1280 ] || [ "$input_height" -ge 720 ]; then
+    # Add source quality if input resolution is above minimum (e.g., 720p or higher)
+    if [ "$input_width" -ge 1280 ] && [ "$input_height" -ge 720 ]; then
         scaled_qualities+=("source:${input_width}x${input_height}:4000k")
     fi
     
-    # Add lower qualities only if they're smaller than input
+    # Add lower qualities only if they are supported by input dimensions
     for quality in "${QUALITIES[@]}"; do
         IFS=':' read -r name resolution bitrate <<< "$quality"
         if [ "$name" = "source" ]; then
@@ -23,7 +23,8 @@ get_scaled_qualities() {
         target_width=$(echo "$resolution" | cut -d'x' -f1)
         target_height=$(echo "$resolution" | cut -d'x' -f2)
         
-        if [ "$input_width" -gt "$target_width" ] || [ "$input_height" -gt "$target_height" ]; then
+        # Only add resolution if it's less than or equal to the input dimensions
+        if [ "$input_width" -ge "$target_width" ] && [ "$input_height" -ge "$target_height" ]; then
             scaled_qualities+=("$name:$resolution:$bitrate")
         fi
     done
@@ -52,7 +53,7 @@ convert_video() {
     echo "#EXTM3U" > "$output_dir/master.m3u8"
     echo "#EXT-X-VERSION:3" >> "$output_dir/master.m3u8"
     
-    # Get adaptive quality settings
+    # Get adaptive quality settings based on input dimensions
     local qualities=($(get_scaled_qualities "$input_width" "$input_height"))
     
     # Convert each quality
@@ -68,13 +69,11 @@ convert_video() {
             # Source quality - no scaling
             ffmpeg_scale_opts="-vf format=yuv420p"
         else
-            # Scale to target resolution with even dimensions
-            width=$(echo "$resolution" | cut -d'x' -f1)
-            height=$(echo "$resolution" | cut -d'x' -f2)
-            ffmpeg_scale_opts="-vf scale='iw*min($width/iw,$height/ih)':'ih*min($width/iw,$height/ih)',\
-            scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p"
+            # Scale to target resolution without forcing exact match
+            target_width=$(echo "$resolution" | cut -d'x' -f1)
+            target_height=$(echo "$resolution" | cut -d'x' -f2)
+            ffmpeg_scale_opts="-vf scale='min(iw,$target_width):min(ih,$target_height)',format=yuv420p"
         fi
-
         
         if ! ffmpeg -y -i "$input_file" \
             -c:v libx264 -preset "$VIDEO_PRESET" \
@@ -104,7 +103,7 @@ convert_video() {
     return 0
 }
 
-# Main execution
+# Main execution if the script is run directly
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     if [[ $# -lt 1 ]]; then
         echo "Usage: $0 <input_file>"
@@ -113,3 +112,4 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     
     convert_video "$1"
 fi
+
