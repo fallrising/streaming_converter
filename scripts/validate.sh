@@ -15,7 +15,7 @@ get_video_info() {
     if [ $? -ne 0 ]; then
         log "ERROR" "Failed to get video information for: $input_file"
         return 1
-    }
+    fi
     
     echo "$video_info"
 }

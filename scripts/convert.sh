@@ -1,19 +1,34 @@
 #!/bin/bash
-# convert.sh - Convert videos to HLS format with dimension handling
+# convert.sh - Adaptive video conversion script
 
 source "$(dirname "$0")/config.sh"
 
-# Function to ensure even dimensions
-ensure_even_dimensions() {
-    local width="$1"
-    local height="$2"
+get_scaled_qualities() {
+    local input_width="$1"
+    local input_height="$2"
+    local scaled_qualities=()
     
-    # Make width even
-    width=$((width - width % 2))
-    # Make height even
-    height=$((height - height % 2))
+    # Add source quality if input is high quality
+    if [ "$input_width" -ge 1280 ] || [ "$input_height" -ge 720 ]; then
+        scaled_qualities+=("source:${input_width}x${input_height}:4000k")
+    fi
     
-    echo "${width}x${height}"
+    # Add lower qualities only if they're smaller than input
+    for quality in "${QUALITIES[@]}"; do
+        IFS=':' read -r name resolution bitrate <<< "$quality"
+        if [ "$name" = "source" ]; then
+            continue
+        fi
+        
+        target_width=$(echo "$resolution" | cut -d'x' -f1)
+        target_height=$(echo "$resolution" | cut -d'x' -f2)
+        
+        if [ "$input_width" -gt "$target_width" ] || [ "$input_height" -gt "$target_height" ]; then
+            scaled_qualities+=("$name:$resolution:$bitrate")
+        fi
+    done
+    
+    echo "${scaled_qualities[@]}"
 }
 
 convert_video() {
@@ -23,9 +38,6 @@ convert_video() {
     
     log "INFO" "Starting conversion for $basename"
     
-    # Create output directory
-    mkdir -p "$output_dir"
-    
     # Get input video dimensions
     local input_dims=$(ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=s=x:p=0 "$input_file")
     local input_width=$(echo "$input_dims" | cut -d'x' -f1)
@@ -33,42 +45,40 @@ convert_video() {
     
     log "INFO" "Input dimensions: ${input_dims}"
     
+    # Create output directory
+    mkdir -p "$output_dir"
+    
     # Create master playlist
     echo "#EXTM3U" > "$output_dir/master.m3u8"
     echo "#EXT-X-VERSION:3" >> "$output_dir/master.m3u8"
     
+    # Get adaptive quality settings
+    local qualities=($(get_scaled_qualities "$input_width" "$input_height"))
+    
     # Convert each quality
-    for quality in "${QUALITIES[@]}"; do
+    for quality in "${qualities[@]}"; do
         IFS=':' read -r name resolution bitrate <<< "$quality"
-        
-        # Get target dimensions
-        local target_width=$(echo "$resolution" | cut -d'x' -f1)
-        local target_height=$(echo "$resolution" | cut -d'x' -f2)
-        
-        # Calculate scaled dimensions while maintaining aspect ratio
-        local scale_dims
-        if [ "$input_width" -gt "$input_height" ]; then
-            # Landscape video
-            local new_height=$((target_width * input_height / input_width))
-            scale_dims=$(ensure_even_dimensions "$target_width" "$new_height")
-        else
-            # Portrait video
-            local new_width=$((target_height * input_width / input_height))
-            scale_dims=$(ensure_even_dimensions "$new_width" "$target_height")
-        fi
         
         local quality_dir="$output_dir/$name"
         mkdir -p "$quality_dir/segments"
         
-        log "INFO" "Converting $basename to $name ($scale_dims)"
+        log "INFO" "Converting $basename to $name ($resolution)"
+        
+        if [ "$name" = "source" ]; then
+            # Source quality - no scaling
+            ffmpeg_scale_opts="-vf format=yuv420p"
+        else
+            # Scale to target resolution
+            ffmpeg_scale_opts="-vf scale=$resolution:force_original_aspect_ratio=decrease,format=yuv420p"
+        fi
         
         if ! ffmpeg -y -i "$input_file" \
-            -c:v libx264 -preset fast \
+            -c:v libx264 -preset "$VIDEO_PRESET" \
             -b:v "$bitrate" \
             -maxrate "$bitrate" \
             -bufsize "$(echo "$bitrate" | sed 's/k$//')k" \
-            -vf "scale=$scale_dims:force_original_aspect_ratio=disable" \
-            -c:a aac -b:a 128k -ac 2 \
+            $ffmpeg_scale_opts \
+            -c:a aac -b:a "$AUDIO_BITRATE" -ac "$AUDIO_CHANNELS" \
             -force_key_frames "expr:gte(t,n_forced*$HLS_SEGMENT_TIME)" \
             -hls_time "$HLS_SEGMENT_TIME" \
             -hls_list_size "$HLS_LIST_SIZE" \
@@ -82,7 +92,7 @@ convert_video() {
         
         # Add to master playlist
         echo "" >> "$output_dir/master.m3u8"
-        echo "#EXT-X-STREAM-INF:BANDWIDTH=$(echo "$bitrate" | sed 's/k/000/'),RESOLUTION=$scale_dims" >> "$output_dir/master.m3u8"
+        echo "#EXT-X-STREAM-INF:BANDWIDTH=$(echo "$bitrate" | sed 's/k/000/'),RESOLUTION=$resolution" >> "$output_dir/master.m3u8"
         echo "$name/playlist.m3u8" >> "$output_dir/master.m3u8"
     done
     
@@ -90,14 +100,10 @@ convert_video() {
     return 0
 }
 
-# Main execution if script is run directly
+# Main execution
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     if [[ $# -lt 1 ]]; then
         echo "Usage: $0 <input_file>"
-        exit 1
-    fi
-    
-    if ! "$(dirname "$0")/validate.sh" "$1"; then
         exit 1
     fi
     
