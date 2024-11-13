@@ -8,23 +8,32 @@ process_video() {
     local input_file="$1"
     local basename=$(basename "${input_file%.*}")
     local output_dir="$PROCESSED_DIR/$basename"
-    
+    local failed_marker="$PROCESSED_DIR/.${basename}.failed"
+
+    # Skip if a failed marker exists
+    if [[ -f "$failed_marker" ]]; then
+        log "WARNING" "Skipping failed video: $basename (already marked as failed)"
+        return 1
+    fi
+
     log "INFO" "Starting video processing pipeline..."
-    
+
     # Step 1: Validate video
     log "INFO" "Step 1: Validating video..."
     if ! "$SCRIPT_DIR/validate.sh" "$input_file"; then
         log "ERROR" "Validation failed. Aborting."
+        touch "$failed_marker"
         return 1
     fi
-    
+
     # Step 2: Convert to HLS
     log "INFO" "Step 2: Converting to HLS..."
     if ! "$SCRIPT_DIR/convert.sh" "$input_file" "$output_dir"; then
         log "ERROR" "Conversion failed. Aborting."
+        touch "$failed_marker"
         return 1
     fi
-    
+
     # Step 3: Upload to R2 if enabled
     if [[ "$USE_R2" == "true" ]]; then
         log "INFO" "Step 3: Uploading to R2..."
@@ -32,7 +41,7 @@ process_video() {
             log "WARNING" "R2 upload failed, but local files are available"
         fi
     fi
-    
+
     log "INFO" "Processing completed successfully!"
     return 0
 }

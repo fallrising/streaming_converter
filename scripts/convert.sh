@@ -68,9 +68,13 @@ convert_video() {
             # Source quality - no scaling
             ffmpeg_scale_opts="-vf format=yuv420p"
         else
-            # Scale to target resolution
-            ffmpeg_scale_opts="-vf scale=$resolution:force_original_aspect_ratio=decrease,format=yuv420p"
+            # Scale to target resolution with even dimensions
+            width=$(echo "$resolution" | cut -d'x' -f1)
+            height=$(echo "$resolution" | cut -d'x' -f2)
+            ffmpeg_scale_opts="-vf scale='iw*min($width/iw,$height/ih)':'ih*min($width/iw,$height/ih)',\
+            scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p"
         fi
+
         
         if ! ffmpeg -y -i "$input_file" \
             -c:v libx264 -preset "$VIDEO_PRESET" \
